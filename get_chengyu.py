@@ -7,12 +7,12 @@
 # @Software: PyCharm
 
 from threading import Thread
+from threading import Semaphore
 import time
 import requests
 from queue import Queue
 import queue
 import json
-from asyncio import Semaphore
 
 url = 'https://sp0.baidu.com/8aQDcjqpAAV3otqbppnN2DJv/api.php?resource_id=28204&from_mid=1&&format=json&ie=utf-8&oe=utf-8&query=%E6%88%90%E8%AF%AD%E5%A4%A7%E5%85%A8&sort_key=&sort_type=1&stat0=&stat1=&stat2=&stat3=&pn='
 url_end = '&rn=30&_=1516885908487'
@@ -29,29 +29,34 @@ class NetThread(Thread):
         self.__name = name
         self.__semaphore = semaphore
 
+    def _get_data_and_parse(self, new_url):
+        re = requests.get(new_url)
+        if re.status_code != 200:
+            print('url 200:', new_url)
+            if isinstance(self.__semaphore, Semaphore):
+                self.__erro_url_queue.put(new_url)
+                print('stat not 200 \n', new_url, '\n', re.text)
+                self.__semaphore.release()
+        else:
+            js = json.loads(re.text)
+            # print(js)
+            if js['data'] == [None]:
+                if isinstance(self.__semaphore, Semaphore):
+                    s = '====data none==='
+                    print(s, new_url)
+                    return self._get_data_and_parse(new_url)
+                    # self.__erro_url_queue.put(s + new_url)
+                    # self.__semaphore.release()
+            else:
+                result = js["data"][0]["result"]
+                for name in result:
+                    self.__data_queue.put(name['ename'])
+
     def run(self):
         # 当url队列中的数据全部取完时结束线程
         while self.__url_queue.qsize() != 0:
             new_url = self.__url_queue.get()
-            re = requests.get(new_url)
-            if re.status_code != 200:
-                print('url 200:', new_url)
-                if isinstance(self.__semaphore, Semaphore):
-                    self.__erro_url_queue.put(new_url)
-                    self.__semaphore.release()
-            else:
-                print(re.text)
-                js = json.loads(re.text)
-                print(js)
-                if js['data'] == [None]:
-                    if isinstance(self.__semaphore, Semaphore):
-                        s = '====data none===\n'
-                        self.__erro_url_queue.put(s + new_url)
-                        self.__semaphore.release()
-                else:
-                    result = js["data"][0]["result"]
-                    for name in result:
-                        self.__data_queue.put(name['ename'])
+            self._get_data_and_parse(new_url)
 
 
 class WriteThread(Thread):
@@ -167,10 +172,59 @@ def test_write_thread():
             time.sleep(1)
             continue
 
+import sqlite3
+
+
+class ChengYuDict(object):
+    def __init__(self, file_name):
+        # 组织数据:例如： '七上八下'
+        #  {'七': ['七上八下']}
+        #  {'上': ['七上八下']}
+        #  {'八': ['七上八下']}
+        #  {'下': ['七上八下']}
+        self.__cheng_yu_dict = dict()
+        with open(file_name, 'r') as f:
+            while f.readable():
+                word = f.readline()
+                word.replace('\n', '')
+                word_key = word[0]
+                if dict.get(word_key) is None:
+                    dict[word_key] = [word]
+                else:
+                    list_value = dict[word_key]
+                    list_value.append(word)
+
+    def save_cheng_yu_in_sql_data(self, file_name, database_name):
+        self.__db = sqlite3.connect(database_name)
+        c = self.__db.cursor()
+
+        c.execute('''CREATE TABLE ''')
+
+        with open(file_name, 'r') as f:
+            while f.readable():
+                cheng_yu= f.readline()
+                cheng_yu.replace('\n', '')
+                key = 0
+                for word in cheng_yu:
+
+
+    def insert_an_chengyu(self, word):
+        for w in word:
+            if self.__cheng_yu_dict.get(w) is None:
+                self.__cheng_yu_dict[w] = [word]
+            else:
+                list_value = self.__cheng_yu_dict[w]
+                list_value.append(word)
+
+
+
+
+
 
 if __name__ == '__main__':
     # test_write_thread()
     s = Semaphore(0)
+
     c = ChengYuCrawler(10, 1030, s, 5)
     c.begin()
 
